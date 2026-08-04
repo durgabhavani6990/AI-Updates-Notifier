@@ -18,25 +18,61 @@ import requests
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash").strip()
 
+# Signals of general company news (leadership, funding, philanthropy, policy,
+# etc.) rather than an actual product update. Used as the fallback filter
+# when Gemini isn't configured or a call fails -- Gemini's own judgment is
+# the primary filter otherwise.
+GENERAL_NEWS_SIGNALS = [
+    "chief executive", "chief financial", "chief technology", "chief operating",
+    "board of directors", "joins the board", "appoints", "appointment",
+    "named ceo", "named cfo", "named cto", "president of", "hires ", "hiring",
+    "funding round", "raises $", "valuation", "ipo", "donation", "philanthrop",
+    "nonprofit", "grant program", "grants to", "research fund", "policy paper",
+    "position paper", "op-ed", "testimony", "congress", "senate", "lawsuit",
+    "settlement", "earnings call", "quarterly results", "economic index",
+    "sponsorship",
+]
 
-def summarize(provider_name: str, title: str, snippet: str) -> str:
+
+def _looks_like_product_update(title: str, snippet: str) -> bool:
+    text = f"{title} {snippet}".lower()
+    return not any(signal in text for signal in GENERAL_NEWS_SIGNALS)
+
+
+def summarize(provider_name: str, title: str, snippet: str) -> str | None:
     """
-    Produces a 2-3 line description of an update. Uses Gemini (free tier) if
-    an API key is configured; otherwise falls back to a naive truncation of
-    the scraped snippet. Never raises -- always returns something usable.
+    Produces a 2-3 line description of an update, or returns None if it
+    looks like general company news (leadership changes, funding, grants,
+    policy essays, partnerships, etc.) rather than a genuine product update
+    (new feature, model, tool, plugin, API, capability, pricing/limit
+    change) -- such items should be left out of the digest entirely.
+
+    Uses Gemini (free tier) to judge + summarize if an API key is
+    configured; otherwise falls back to a keyword heuristic + naive
+    truncation. Never raises -- always returns either a usable string or None.
     """
     if not GEMINI_API_KEY:
+        if not _looks_like_product_update(title, snippet):
+            return None
         fallback = snippet if len(snippet) > len(title) else title
         return textwrap.shorten(fallback, width=280, placeholder="...")
 
     prompt = (
-        f"This is a scraped snippet from {provider_name}'s changelog page.\n\n"
+        f"This is a scraped entry from {provider_name}'s changelog/news page.\n\n"
         f"Title: {title}\n"
         f"Raw snippet: {snippet}\n\n"
-        "Write a plain, factual 2-3 line description (no more than 3 short "
-        "sentences, no markdown, no preamble) of what this update / feature "
-        "is. If the snippet doesn't contain enough information to be sure, "
-        "just clean up and shorten the title/snippet instead of guessing."
+        "First, decide if this is a genuine AI PRODUCT update -- a new "
+        "feature, model, tool, plugin, SDK, API, integration, capability "
+        "improvement, or a pricing/rate-limit/deprecation change. If instead "
+        "it's general company news -- leadership/executive changes, hiring, "
+        "funding, grants, donations, philanthropy, policy essays, research "
+        "papers not tied to a product release, corporate partnerships, or "
+        "PR/brand pieces -- respond with exactly the single word: SKIP\n\n"
+        "Otherwise, respond with a plain, factual 2-3 line description (no "
+        "more than 3 short sentences, no markdown, no preamble) of what the "
+        "update / feature is. If the snippet doesn't contain enough "
+        "information to be sure it's a product update, respond SKIP rather "
+        "than guessing."
     )
 
     try:
@@ -54,8 +90,14 @@ def summarize(provider_name: str, title: str, snippet: str) -> str:
             .get("parts", [{}])[0]
             .get("text", "")
         ).strip()
-        return text or textwrap.shorten(snippet, width=280, placeholder="...")
+        if not text:
+            raise ValueError("empty Gemini response")
+        if text.strip().upper().startswith("SKIP"):
+            return None
+        return text
     except Exception:
+        if not _looks_like_product_update(title, snippet):
+            return None
         return textwrap.shorten(snippet, width=280, placeholder="...")
 
 

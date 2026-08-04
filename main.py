@@ -56,15 +56,18 @@ def main():
 
         new_entries = [e for e in entries if e["url"] not in seen]
 
-        if new_entries:
-            digest[name] = []
-            for e in new_entries:
-                description = summarize(name, e["title"], e["snippet"])
-                digest[name].append({
-                    "url": e["url"],
-                    "title": e["title"],
-                    "description": description,
-                })
+        included = []
+        for e in new_entries:
+            description = summarize(name, e["title"], e["snippet"])
+            if description is None:
+                continue  # general company news, not a product update -- skip
+            included.append({
+                "url": e["url"],
+                "title": e["title"],
+                "description": description,
+            })
+        if included:
+            digest[name] = included
 
         # Update seen set with everything currently on the page (newest first)
         all_urls_today = [e["url"] for e in entries]
