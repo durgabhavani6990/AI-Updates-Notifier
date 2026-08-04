@@ -1,0 +1,46 @@
+name: Daily AI Updates Notifier
+
+on:
+  schedule:
+    # 17:30 UTC = 11:00 PM IST (IST is UTC+5:30). GitHub cron can run a few
+    # minutes late during high load, which is normal for scheduled Actions.
+    - cron: "30 17 * * *"
+  workflow_dispatch: {}  # lets you trigger it manually from the Actions tab
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run notifier
+        env:
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          RECIPIENT_EMAILS: ${{ secrets.RECIPIENT_EMAILS }}
+          META_WA_PHONE_NUMBER_ID: ${{ secrets.META_WA_PHONE_NUMBER_ID }}
+          META_WA_ACCESS_TOKEN: ${{ secrets.META_WA_ACCESS_TOKEN }}
+          META_WA_TEMPLATE_NAME: ${{ secrets.META_WA_TEMPLATE_NAME }}
+          META_WA_TEMPLATE_LANG: ${{ secrets.META_WA_TEMPLATE_LANG }}
+          RECIPIENT_WHATSAPP_NUMBERS: ${{ secrets.RECIPIENT_WHATSAPP_NUMBERS }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python main.py
+
+      - name: Commit updated state
+        run: |
+          git config user.name "ai-updates-bot"
+          git config user.email "actions@github.com"
+          git add state.json
+          git diff --quiet --cached || git commit -m "Update seen-updates state [skip ci]"
+          git push
