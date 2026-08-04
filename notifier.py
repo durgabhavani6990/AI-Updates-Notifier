@@ -126,8 +126,9 @@ def send_email(subject: str, html_body: str):
     RECIPIENT_EMAILS (preferred) or RECIPIENT_EMAIL (back-compat) can hold a
     single address or a comma-separated list, e.g.:
       "alice@example.com,bob@example.com,carol@example.com"
-    All recipients are put on the "To" line (everyone can see who else got
-    it). Switch to BCC-per-recipient below if you'd rather keep the list private.
+    Recipients are BCC'd (via the SMTP envelope, not a header) so each
+    person only ever sees themselves in the "To" line, never the rest of
+    the list.
     """
     gmail_address = os.environ["GMAIL_ADDRESS"]
     gmail_app_password = os.environ["GMAIL_APP_PASSWORD"]
@@ -137,7 +138,7 @@ def send_email(subject: str, html_body: str):
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = gmail_address
-    msg["To"] = ", ".join(recipients)
+    msg["To"] = gmail_address
     msg.attach(MIMEText(html_body, "html"))
 
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
