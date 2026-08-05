@@ -1,6 +1,11 @@
 {
   "OpenAI": [
     "https://developers.openai.com/api/docs/deprecations",
+    "https://developers-site-git-agent-add-gpt-5-6-fast-long-c-d938fe-openai.vercel.app/api/docs/guides/fast-mode",
+    "https://developers-site-git-agent-add-gpt-5-6-fast-long-c-d938fe-openai.vercel.app/api/docs/pricing?latest-pricing=fast",
+    "https://platform.openai.com/settings/organization/usage",
+    "https://developers.openai.com/api/reference/resources/admin/subresources/organization/subresources/usage",
+    "https://developers.openai.com/api/reference/resources/admin/subresources/organization/subresources/usage/methods/costs",
     "https://developers.openai.com/api/docs/pricing",
     "https://developers.openai.com/api/docs/guides/fast-mode",
     "https://developers.openai.com/api/docs/guides/terraform",
@@ -10,11 +15,11 @@
     "https://developers.openai.com/api/docs/guides/transcription",
     "https://developers.openai.com/api/docs/guides/spend-limits",
     "https://developers.openai.com/api/docs/guides/latest-model",
-    "https://developers.openai.com/api/docs/guides/tools-programmatic-tool-calling",
+    "https://developers.openai.com/api/docs/guides/responses-multi-agent",
     "https://developers.openai.com/api/docs/guides/prompt-caching",
     "https://developers.openai.com/api/docs/guides/reasoning",
-    "https://developers.openai.com/api/docs/guides/responses-multi-agent",
-    "https://developers.openai.com/api/docs/models/gpt-realtime-2.1"
+    "https://developers.openai.com/api/docs/models/gpt-realtime-2.1",
+    "https://developers.openai.com/api/docs/guides/tools-programmatic-tool-calling"
   ],
   "Anthropic": [
     "https://www.anthropic.com/news/claude-opus-5",
