@@ -8,8 +8,10 @@ Handles:
 """
 
 import os
+import re
 import smtplib
 import textwrap
+from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
@@ -105,45 +107,121 @@ def _split_recipients(raw: str) -> list[str]:
     return [r.strip() for r in raw.split(",") if r.strip()]
 
 
-def build_email_html(digest: dict) -> str:
-    if not digest:
-        return "<p>No updates for today.</p>"
+def _derive_name(email: str) -> str:
+    """
+    Best-effort display name from an email's local part, e.g.
+    "raviteja.peetla@gmail.com" -> "Raviteja", "keshavasai2001@gmail.com"
+    -> "Keshavasai". Falls back to "there" if nothing usable is left.
+    """
+    local = email.split("@", 1)[0]
+    for sep in (".", "_", "-", "+"):
+        if sep in local:
+            local = local.split(sep, 1)[0]
+            break
+    else:
+        local = re.sub(r"\d+$", "", local)
+    local = local.strip()
+    return local.capitalize() if local else "there"
 
-    parts = ["<h2>AI Provider Updates</h2>"]
-    for provider_name, items in digest.items():
-        parts.append(f"<h3>{provider_name}</h3><ul>")
-        for item in items:
-            parts.append(
-                f'<li><a href="{item["url"]}">{item["title"]}</a><br>'
-                f'{item["description"]}</li>'
+
+ACCENT = "#4f46e5"
+TEXT = "#1f2937"
+MUTED = "#6b7280"
+BORDER = "#e5e7eb"
+CARD_BG = "#ffffff"
+PAGE_BG = "#f3f4f6"
+
+
+def build_email_html(digest: dict, errors: list[str] | None = None, recipient_name: str | None = None) -> str:
+    date_str = datetime.now().strftime("%d %b %Y")
+    greeting = f'<div style="font-size:15px;font-weight:700;color:{TEXT};margin-bottom:10px;">Hi {recipient_name},</div>' if recipient_name else ""
+
+    if digest:
+        sections = []
+        for provider_name, items in digest.items():
+            rows = []
+            for i, item in enumerate(items):
+                border = f"border-top:1px solid {BORDER};" if i > 0 else ""
+                rows.append(
+                    f'<tr><td style="padding:12px 0;{border}">'
+                    f'<a href="{item["url"]}" style="color:{ACCENT};font-weight:600;'
+                    f'font-size:15px;text-decoration:none;">{item["title"]}</a>'
+                    f'<div style="color:{TEXT};font-size:14px;line-height:1.5;margin-top:4px;">'
+                    f'{item["description"]}</div></td></tr>'
+                )
+            sections.append(
+                f'<tr><td style="padding:0 0 16px 0;">'
+                f'<div style="background:{CARD_BG};border:1px solid {BORDER};'
+                f'border-radius:10px;padding:6px 20px;">'
+                f'<div style="display:inline-block;background:{ACCENT};color:#ffffff;'
+                f'font-size:12px;font-weight:600;padding:3px 10px;border-radius:999px;'
+                f'letter-spacing:.3px;margin-top:14px;">{provider_name}</div>'
+                f'<table role="presentation" width="100%" style="border-collapse:collapse;">'
+                f'{"".join(rows)}</table></div></td></tr>'
             )
-        parts.append("</ul>")
-    return "\n".join(parts)
+        body = "".join(sections)
+    else:
+        body = (
+            f'<tr><td style="padding:8px 0 16px 0;">'
+            f'<div style="background:{CARD_BG};border:1px solid {BORDER};'
+            f'border-radius:10px;padding:32px;text-align:center;color:{MUTED};'
+            f'font-size:15px;">No updates for today.</div></td></tr>'
+        )
+
+    error_html = ""
+    if errors:
+        error_html = (
+            f'<tr><td style="padding:0 0 16px 0;">'
+            f'<div style="color:{MUTED};font-size:12px;background:#fafafa;'
+            f'border:1px dashed {BORDER};border-radius:8px;padding:10px 14px;">'
+            f'Couldn\'t check: {"; ".join(errors)}</div></td></tr>'
+        )
+
+    return (
+        f'<div style="background:{PAGE_BG};padding:24px 0;'
+        f'font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">'
+        f'<table role="presentation" width="100%" style="max-width:600px;'
+        f'margin:0 auto;border-collapse:collapse;">'
+        f'<tr><td style="padding:0 20px 20px 20px;">'
+        f'{greeting}'
+        f'<div style="font-size:20px;font-weight:700;color:{TEXT};">AI Provider Updates</div>'
+        f'<div style="font-size:13px;color:{MUTED};margin-top:2px;">{date_str}</div>'
+        f'</td></tr>'
+        f'<tr><td style="padding:0 20px;">'
+        f'<table role="presentation" width="100%" style="border-collapse:collapse;">'
+        f'{body}{error_html}</table></td></tr>'
+        f'<tr><td style="padding:12px 20px 24px 20px;text-align:center;">'
+        f'<div style="font-size:12px;color:{MUTED};">'
+        f'Automated daily digest of official AI provider changelogs.</div>'
+        f'</td></tr></table></div>'
+    )
 
 
-def send_email(subject: str, html_body: str):
+def send_email(subject: str, digest: dict, errors: list[str] | None = None):
     """
     RECIPIENT_EMAILS (preferred) or RECIPIENT_EMAIL (back-compat) can hold a
     single address or a comma-separated list, e.g.:
       "alice@example.com,bob@example.com,carol@example.com"
-    Recipients are BCC'd (via the SMTP envelope, not a header) so each
-    person only ever sees themselves in the "To" line, never the rest of
-    the list.
+    Sends one individual, personally-greeted email per recipient (same SMTP
+    connection, separate messages) so each person's "To" line shows their
+    own address and their own name in the greeting, while never revealing
+    the rest of the recipient list to anyone.
     """
     gmail_address = os.environ["GMAIL_ADDRESS"]
     gmail_app_password = os.environ["GMAIL_APP_PASSWORD"]
     raw_recipients = os.environ.get("RECIPIENT_EMAILS") or os.environ["RECIPIENT_EMAIL"]
     recipients = _split_recipients(raw_recipients)
 
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = gmail_address
-    msg["To"] = gmail_address
-    msg.attach(MIMEText(html_body, "html"))
-
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
         server.login(gmail_address, gmail_app_password)
-        server.sendmail(gmail_address, recipients, msg.as_string())
+        for recipient in recipients:
+            html_body = build_email_html(digest, errors, recipient_name=_derive_name(recipient))
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = subject
+            msg["From"] = gmail_address
+            msg["To"] = recipient
+            msg.attach(MIMEText(html_body, "html"))
+            server.sendmail(gmail_address, [recipient], msg.as_string())
 
 
 def build_whatsapp_text(digest: dict) -> str:

@@ -17,7 +17,6 @@ from providers import PROVIDERS
 from scraper import fetch_entries
 from notifier import (
     summarize,
-    build_email_html,
     build_whatsapp_text,
     send_email,
     send_whatsapp,
@@ -79,15 +78,12 @@ def main():
     today_str = datetime.now().strftime("%d %b %Y")
     subject = f"AI Provider Updates - {today_str}"
 
-    email_html = build_email_html(digest)
     whatsapp_text = build_whatsapp_text(digest)
 
     if errors:
-        error_note = "\n\n---\nCouldn't check: " + "; ".join(errors)
-        email_html += "<p style='color:#999'>" + error_note.replace("\n", "<br>") + "</p>"
         whatsapp_text += "\n\n(Note: " + "; ".join(errors) + ")"
 
-    send_email(subject, email_html)
+    send_email(subject, digest, errors)
     send_whatsapp(whatsapp_text)
 
     print(f"Done. {sum(len(v) for v in digest.values())} new update(s) across {len(digest)} provider(s).")
