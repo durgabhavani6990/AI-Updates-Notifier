@@ -49,6 +49,7 @@ def fetch_entries(provider: dict) -> list[dict]:
 
     entries = []
     seen_urls = set()
+    seen_parents = set()
 
     for a in root.find_all("a", href=True):
         href = a["href"]
@@ -76,11 +77,18 @@ def fetch_entries(provider: dict) -> list[dict]:
         if not title or len(title) < 4:
             continue
 
-        # Grab surrounding paragraph text as a snippet, if available
-        snippet = ""
+        # Multiple links inside the same list item / paragraph usually mean
+        # one changelog entry mentioning several things (e.g. "Usage API" and
+        # "Costs API" both linked from one bullet) -- keep only the first
+        # link per parent so it doesn't turn into duplicate "new" items.
         parent = a.find_parent(["li", "p", "div", "section", "article"])
-        if parent:
-            snippet = clean_text(parent.get_text())
+        if parent is not None:
+            parent_key = id(parent)
+            if parent_key in seen_parents:
+                continue
+            seen_parents.add(parent_key)
+
+        snippet = clean_text(parent.get_text()) if parent is not None else ""
         if not snippet:
             snippet = title
 
