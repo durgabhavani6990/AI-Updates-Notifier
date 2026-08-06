@@ -11,6 +11,7 @@ is "new" -> gets included in today's notification.
 
 import re
 import requests
+from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup
 
 HEADERS = {
@@ -22,6 +23,13 @@ def clean_text(text: str) -> str:
     return re.sub(r"\s+", " ", text or "").strip()
 
 
+def _root_domain(url: str) -> str:
+    """"openai.com" from "developers.openai.com", "anthropic.com" from "www.anthropic.com"."""
+    netloc = urlparse(url).netloc.lower().split(":")[0]
+    parts = netloc.split(".")
+    return ".".join(parts[-2:]) if len(parts) >= 2 else netloc
+
+
 def fetch_entries(provider: dict) -> list[dict]:
     """
     Returns a list of dicts: {"url": str, "title": str, "snippet": str}
@@ -30,6 +38,7 @@ def fetch_entries(provider: dict) -> list[dict]:
     url = provider["url"]
     link_filter = provider.get("link_filter")
     max_items = provider.get("max_items", 15)
+    allowed_domain = _root_domain(url)
 
     resp = requests.get(url, headers=HEADERS, timeout=20)
     resp.raise_for_status()
@@ -46,9 +55,15 @@ def fetch_entries(provider: dict) -> list[dict]:
 
         # Normalize relative URLs
         if href.startswith("/"):
-            from urllib.parse import urljoin
             href = urljoin(url, href)
         if not href.startswith("http"):
+            continue
+
+        # Only trust links on the provider's own domain (e.g. developers.openai.com
+        # and platform.openai.com both match "openai.com") -- filters out stray
+        # third-party links like preview/staging deployments that occasionally
+        # leak onto a provider's live page.
+        if _root_domain(href) != allowed_domain:
             continue
 
         if link_filter and link_filter not in href:
