@@ -46,7 +46,12 @@ PROVIDERS = [
         "name": "Meta AI",
         "url": "https://ai.meta.com/blog/",
         "link_filter": "/blog/",
+        "exclude_filter": ["?page="],
         "max_items": 15,
+        # Listing shows no dates and some cards link out with a "FEATURED"
+        # badge as the anchor text instead of a real title; fetch each new
+        # article's own page for both.
+        "fetch_article_dates": True,
     },
     {
         "name": "Microsoft Azure AI",
@@ -92,8 +97,16 @@ PROVIDERS = [
     },
     {
         "name": "DeepSeek",
-        "url": "https://api-docs.deepseek.com/news/",
-        "link_filter": None,
+        # The old /news/ URL now serves the generic quickstart doc, not a
+        # news listing (site restructure) -- /updates/ is the real changelog.
+        "url": "https://api-docs.deepseek.com/updates/",
+        # Real release entries link to /news/newsXXXXXX; everything else on
+        # the page is docs sidebar/nav.
+        "link_filter": "/news/news",
         "max_items": 15,
+        # Newer entries link out with generic text ("this documentation")
+        # instead of a real title, and the listing shows no dates at all --
+        # fetch each new article's own page for both.
+        "fetch_article_dates": True,
     },
 ]

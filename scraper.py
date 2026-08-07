@@ -29,56 +29,97 @@ DATE_RE = re.compile(
     r"\s+\d{1,2},?\s+\d{4}"
 )
 
+# Some providers (e.g. DeepSeek) date entries as plain "2026/04/24" instead
+# of a month name -- normalized to "Month DD, YYYY" when matched so it's
+# still usable by notifier.py's date parsing.
+SLASH_DATE_RE = re.compile(r"\b(\d{4})/(\d{1,2})/(\d{1,2})\b")
+
 
 def clean_text(text: str) -> str:
     return re.sub(r"\s+", " ", text or "").strip()
 
 
+def _extract_date(text: str) -> str | None:
+    m = DATE_RE.search(text)
+    if m:
+        return m.group(0)
+    m = SLASH_DATE_RE.search(text)
+    if m:
+        try:
+            return datetime(int(m.group(1)), int(m.group(2)), int(m.group(3))).strftime("%B %d, %Y")
+        except ValueError:
+            return None
+    return None
+
+
 def _nearby_date(parent) -> str | None:
     """
     Best-effort: only returns a date when the entry's own containing element
-    (the same one used for its snippet) has an unambiguous "Month DD, YYYY"
-    in it. Many provider pages put the date in a separate group heading we
-    can't reliably associate with a specific entry -- those just get None
-    rather than a guessed date.
+    (the same one used for its snippet) has an unambiguous date in it. Many
+    provider pages put the date in a separate group heading we can't
+    reliably associate with a specific entry -- those just get None rather
+    than a guessed date.
     """
     if parent is None:
         return None
-    m = DATE_RE.search(parent.get_text(separator=" "))
-    return m.group(0) if m else None
+    return _extract_date(parent.get_text(separator=" "))
 
 
-def _fetch_article_date(url: str) -> str | None:
+# Some changelogs (e.g. DeepSeek's newer entries) link out with generic
+# connector text like "For more details, see this documentation" instead of
+# a real headline -- the actual title only exists on the article page itself.
+_GENERIC_TITLES = {"this documentation", "the documentation", "documentation", "here", "learn more", "read more", "click here", "featured", "blog"}
+
+
+def _looks_generic(title: str) -> bool:
+    return title.strip().lower() in _GENERIC_TITLES
+
+
+def _fetch_article_meta(url: str) -> tuple[str | None, str | None]:
     """
-    Best-effort: for pages that don't expose a date on the listing itself
-    (e.g. Google's blog), visit the entry's own page and check the standard
-    article:published_time meta tag, then a <time datetime> attribute, then
-    fall back to a visible "Month DD, YYYY" near the top of the article.
+    Best-effort single request to an entry's own page for whatever the
+    listing didn't expose: a proper date (article:published_time meta tag,
+    then a <time datetime> attribute, then a visible date near the top) and,
+    when the listing's link text was just generic connector phrasing, a real
+    title from the article's own <h1> or <title> tag.
     """
     try:
         resp = requests.get(url, headers=HEADERS, timeout=15)
         resp.raise_for_status()
     except requests.RequestException:
-        return None
+        return None, None
 
     soup = BeautifulSoup(resp.text, "html.parser")
+    # Scoped to <main>/<article>, not the whole page -- otherwise a sidebar
+    # like "recent updates" can leak a different entry's date/title in.
+    root = soup.find("main") or soup.find("article") or soup
 
+    date = None
     meta = soup.find("meta", attrs={"property": "article:published_time"})
     if meta and meta.get("content"):
         try:
-            return datetime.strptime(meta["content"][:10], "%Y-%m-%d").strftime("%B %d, %Y")
+            date = datetime.strptime(meta["content"][:10], "%Y-%m-%d").strftime("%B %d, %Y")
         except ValueError:
             pass
+    if date is None:
+        time_tag = soup.find("time", attrs={"datetime": True})
+        if time_tag and time_tag.get("datetime"):
+            try:
+                date = datetime.strptime(time_tag["datetime"][:10], "%Y-%m-%d").strftime("%B %d, %Y")
+            except ValueError:
+                pass
+    if date is None:
+        date = _extract_date(root.get_text(separator=" ")[:3000])
 
-    time_tag = soup.find("time", attrs={"datetime": True})
-    if time_tag:
-        try:
-            return datetime.strptime(time_tag["datetime"][:10], "%Y-%m-%d").strftime("%B %d, %Y")
-        except ValueError:
-            pass
+    title = None
+    h1 = root.find("h1")
+    if h1:
+        title = clean_text(h1.get_text(separator=" "))
+    if not title and soup.title:
+        # Strip a trailing " | Site Name" / " - Site Name" suffix.
+        title = re.split(r"\s+[|–-]\s+", clean_text(soup.title.get_text()))[0].strip()
 
-    m = DATE_RE.search(soup.get_text(separator=" ")[:3000])
-    return m.group(0) if m else None
+    return date, title
 
 
 def _fetch_rss_entries(provider: dict) -> list[dict]:
@@ -190,11 +231,22 @@ def fetch_entries(provider: dict) -> list[dict]:
         if any(x in href for x in exclude_filters):
             continue
 
+        # A link back to the listing page itself (e.g. a "Blog home" crumb)
+        # is never a real entry.
+        if href.rstrip("/") == url.rstrip("/"):
+            continue
+
         if href in seen_urls:
             continue
 
         title = clean_text(a.get_text(separator=" "))
         if not title or len(title) < 4:
+            continue
+
+        # Generic connector text ("Learn More", "here", ...) isn't a real
+        # entry -- skip it unless fetch_article_dates can recover a real
+        # title from the linked page itself.
+        if _looks_generic(title) and not provider.get("fetch_article_dates"):
             continue
 
         # Multiple links inside the same list item / paragraph usually mean
@@ -223,8 +275,11 @@ def fetch_entries(provider: dict) -> list[dict]:
         if not snippet:
             snippet = title
 
-        if date is None and provider.get("fetch_article_dates"):
-            date = _fetch_article_date(href)
+        if provider.get("fetch_article_dates") and (date is None or _looks_generic(title)):
+            fetched_date, fetched_title = _fetch_article_meta(href)
+            date = date or fetched_date
+            if _looks_generic(title) and fetched_title:
+                title = fetched_title
 
         seen_urls.add(href)
         entries.append({"url": href, "title": title, "snippet": snippet[:600], "date": date})
