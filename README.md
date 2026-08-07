@@ -175,6 +175,6 @@ git push -u origin main
   GitHub Actions, after GitHub's shared runners repeatedly failed to pick up
   this job at its scheduled time ("job was not acquired by Runner ... after
   multiple attempts"). See DEPLOY.md's "Daily scheduling" section.
-- PythonAnywhere's free tier restricts outbound internet access to an
-  allowlist of sites, which would block scraping most of these 10 providers
-  — the paid "Hacker" plan (~$5/month) is required.
+- PythonAnywhere's free ("Beginner") tier restricts outbound internet access
+  to an allowlist of sites, which would block scraping most of these 10
+  providers — the paid **Developer** plan ($10/month) is required.

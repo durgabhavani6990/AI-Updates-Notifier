@@ -172,10 +172,11 @@ workflow (`.github/workflows/daily-notify.yml`) still exists for manual runs
 from the Actions tab, but its `schedule:` trigger has been removed so it
 can't double-fire.
 
-PythonAnywhere's **free tier restricts outbound internet access to an
-allowlist of sites** — it would block scraping most of the 10 provider
-domains this project needs. The paid "Hacker" plan (~$5/month) removes that
-restriction and is what this setup assumes.
+PythonAnywhere's **free ("Beginner") tier restricts outbound internet access
+to an allowlist of sites** — it would block scraping most of the 10 provider
+domains this project needs. The paid **Developer** plan ($10/month) removes
+that restriction and adds Scheduled Tasks (not available on Beginner), and
+is what this setup assumes.
 
 Unlike the earlier Render-based approach, this needs no GitHub token and no
 clone/push-on-every-run workaround: PythonAnywhere gives you a real
@@ -184,8 +185,8 @@ it would on your own machine.
 
 ### One-time setup
 
-1. Create a PythonAnywhere account and upgrade to the **Hacker** plan
-   (Account → Upgrade).
+1. Create a PythonAnywhere account and upgrade to the **Developer** plan
+   (Account → Upgrade Account, $10/month).
 
 2. Open a **Bash console** from the PythonAnywhere dashboard and clone the repo:
    ```bash
@@ -193,7 +194,9 @@ it would on your own machine.
    cd AI-Updates-Notifier
    ```
 
-3. Create a virtualenv and install dependencies:
+3. Create a virtualenv and install dependencies (check `ls /usr/bin/python3.*`
+   first for whatever Python 3.x version is actually available on your
+   account — don't assume 3.11 is still current):
    ```bash
    mkvirtualenv --python=/usr/bin/python3.11 ai-updates-env
    pip install -r requirements.txt
