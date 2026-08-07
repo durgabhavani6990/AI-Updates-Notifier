@@ -157,66 +157,90 @@ To rotate a secret (e.g. new Meta access token):
 gh secret set META_WA_ACCESS_TOKEN -b"new-value-here" -R <owner>/<repo>
 ```
 
-To change the schedule, edit the cron field in your Render Cron Job's
-settings (see below) — the daily run no longer happens through GitHub
-Actions.
+To pick up code changes on PythonAnywhere, see "Updating the code later"
+below — the daily run no longer happens through GitHub Actions.
 
 ---
 
-## Daily scheduling: Render Cron Job (not GitHub Actions)
+## Daily scheduling: PythonAnywhere Scheduled Task (not GitHub Actions)
 
 GitHub's shared Actions runners repeatedly failed to pick up this job at its
 scheduled time ("job was not acquired by Runner ... after multiple
 attempts"), so the actual daily trigger now lives on
-[Render](https://render.com) instead. The GitHub Actions workflow
-(`.github/workflows/daily-notify.yml`) still exists for manual runs from the
-Actions tab, but its `schedule:` trigger has been removed so it can't
-double-fire alongside Render.
+[PythonAnywhere](https://www.pythonanywhere.com) instead. The GitHub Actions
+workflow (`.github/workflows/daily-notify.yml`) still exists for manual runs
+from the Actions tab, but its `schedule:` trigger has been removed so it
+can't double-fire.
 
-`scripts/render_run.sh` is the entry point Render calls. Since Render Cron
-Jobs don't guarantee the filesystem persists between runs, the script is
-self-contained: on every run it clones a fresh copy of this repo with a
-GitHub token, runs `main.py`, then commits and pushes the updated
-`state.json` back — the same "commit updated state" step the old GitHub
-Actions job used to do.
+PythonAnywhere's **free tier restricts outbound internet access to an
+allowlist of sites** — it would block scraping most of the 10 provider
+domains this project needs. The paid "Hacker" plan (~$5/month) removes that
+restriction and is what this setup assumes.
+
+Unlike the earlier Render-based approach, this needs no GitHub token and no
+clone/push-on-every-run workaround: PythonAnywhere gives you a real
+persistent filesystem, so `state.json` just lives on disk between runs like
+it would on your own machine.
 
 ### One-time setup
 
-1. **Generate a GitHub Personal Access Token** the script can use to push
-   `state.json` back to this repo:
-   - GitHub → Settings → Developer settings → Fine-grained tokens → Generate new token
-   - Repository access: only this repo (`AI-Updates-Notifier`)
-   - Permissions: **Contents: Read and write**
-   - Copy the token — you won't be able to see it again.
+1. Create a PythonAnywhere account and upgrade to the **Hacker** plan
+   (Account → Upgrade).
 
-2. **Create a Render account** at [render.com](https://render.com) (a GitHub
-   login works fine) and connect it to this repository.
+2. Open a **Bash console** from the PythonAnywhere dashboard and clone the repo:
+   ```bash
+   git clone https://github.com/<your-username>/AI-Updates-Notifier.git
+   cd AI-Updates-Notifier
+   ```
 
-3. **New → Cron Job**, pointing at this repo, with:
-   - **Build Command:** `pip install -r requirements.txt`
-   - **Start Command:** `bash scripts/render_run.sh`
-   - **Schedule:** `30 17 * * *` (UTC — same as before: 17:30 UTC = 11:00 PM IST)
+3. Create a virtualenv and install dependencies:
+   ```bash
+   mkvirtualenv --python=/usr/bin/python3.11 ai-updates-env
+   pip install -r requirements.txt
+   ```
 
-4. **Add environment variables** in the Cron Job's settings — copy the same
-   values you originally set as GitHub Actions secrets (GitHub won't show you
-   the old values back, so pull them from wherever you first saved them:
-   password manager, Meta/Gemini dashboards, etc.):
-   - `GMAIL_ADDRESS`
-   - `GMAIL_APP_PASSWORD`
-   - `RECIPIENT_EMAILS`
-   - `META_WA_PHONE_NUMBER_ID`
-   - `META_WA_ACCESS_TOKEN`
-   - `META_WA_TEMPLATE_NAME`
-   - `META_WA_TEMPLATE_LANG`
-   - `RECIPIENT_WHATSAPP_NUMBERS`
-   - `GEMINI_API_KEY`
-   - `GITHUB_TOKEN` — the token from step 1
-   - `GITHUB_REPO` — `<your-username>/AI-Updates-Notifier`
+4. Create a real `.env` file with your actual secret values (this file is
+   private to your account and never gets pushed to git — pull the values
+   from wherever you originally saved them, since GitHub won't show old
+   Actions secret values back):
+   ```bash
+   cp .env.example .env
+   nano .env   # fill in real values, then Ctrl+O, Enter, Ctrl+X to save
+   ```
 
-5. Trigger a manual run from Render's dashboard once to confirm it emails
-   you and pushes a `state.json` commit, same as testing the GitHub Actions
-   workflow used to work.
+5. Test it manually once:
+   ```bash
+   python main.py
+   ```
+   Confirm you get the email + WhatsApp digest, same as testing the old
+   GitHub Actions workflow used to work.
 
-Render bills Cron Jobs by the second of actual run time, with a $1/month
-minimum per cron service — there's no free tier for this service type, but a
-job that runs a minute or two once a day will sit right around that floor.
+6. Go to the **Tasks** tab in the PythonAnywhere dashboard and add a new
+   scheduled task:
+   - **Time:** `17:30` (PythonAnywhere schedules are in UTC — 17:30 UTC = 11:00 PM IST)
+   - **Command:**
+     ```
+     /home/<your-pythonanywhere-username>/.virtualenvs/ai-updates-env/bin/python /home/<your-pythonanywhere-username>/AI-Updates-Notifier/main.py
+     ```
+
+7. So future `git pull`s don't conflict with the locally-changing
+   `state.json` (see below), tell git to leave your local copy alone:
+   ```bash
+   git update-index --skip-worktree state.json
+   ```
+
+That's it — no secrets to re-enter anywhere else, no push-back step, no
+GitHub token.
+
+### Updating the code later
+
+The scheduled task only runs `main.py` — it doesn't pull new code on its
+own. When you push changes to GitHub and want PythonAnywhere to pick them
+up, open a Bash console and run:
+
+```bash
+cd ~/AI-Updates-Notifier && git pull
+```
+
+Step 7 above (`--skip-worktree`) means this won't try to overwrite your
+locally-persisted `state.json` with the repo's (now-stale) committed copy.
