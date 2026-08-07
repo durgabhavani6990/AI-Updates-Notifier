@@ -20,7 +20,9 @@ PROVIDERS = [
     {
         "name": "OpenAI",
         "url": "https://developers.openai.com/api/docs/changelog",
-        "link_filter": None,
+        # Excludes platform.openai.com links (login/dashboard pages that get
+        # swept up as "here"-style anchors alongside real changelog entries).
+        "link_filter": "developers.openai.com",
         "max_items": 15,
     },
     {
@@ -50,7 +52,8 @@ PROVIDERS = [
     {
         "name": "Mistral AI",
         "url": "https://docs.mistral.ai/getting-started/changelog/",
-        "link_filter": None,
+        # Excludes chat.mistral.ai (the Le Chat app homepage, not a changelog entry).
+        "link_filter": "docs.mistral.ai",
         "max_items": 15,
     },
     {

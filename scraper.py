@@ -89,6 +89,15 @@ def fetch_entries(provider: dict) -> list[dict]:
             seen_parents.add(parent_key)
 
         snippet = clean_text(parent.get_text()) if parent is not None else ""
+        if not snippet or snippet == title:
+            # Table-row changelogs (e.g. AWS doc-history pages) put the link
+            # text, description, and date in separate cells -- if the link's
+            # own cell has no extra text, pull the whole row instead.
+            row = a.find_parent("tr")
+            if row is not None:
+                row_text = clean_text(row.get_text())
+                if row_text:
+                    snippet = row_text
         if not snippet:
             snippet = title
 
