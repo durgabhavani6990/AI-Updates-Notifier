@@ -1,11 +1,14 @@
 name: Daily AI Updates Notifier
 
 on:
-  # Daily scheduling moved to Render Cron Jobs (see scripts/render_run.sh)
-  # after GitHub's shared runner pool repeatedly failed to pick up this job
-  # at its scheduled time. workflow_dispatch is kept as a manual fallback --
-  # re-add a `schedule:` trigger here if you ever move back.
-  workflow_dispatch: {}  # lets you trigger it manually from the Actions tab
+  # No `schedule:` trigger here on purpose. GitHub deprioritizes
+  # schedule-triggered runs specifically in its shared runner queue, which is
+  # what caused a "job was not acquired by Runner ... after multiple
+  # attempts" failure on this workflow. workflow_dispatch runs (manual or via
+  # API) get normal queue priority, so the daily trigger is an external free
+  # cron service calling this over the API instead -- see DEPLOY.md's "Daily
+  # scheduling" section.
+  workflow_dispatch: {}  # also lets you trigger it manually from the Actions tab
 
 jobs:
   notify:

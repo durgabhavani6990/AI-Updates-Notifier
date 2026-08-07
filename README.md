@@ -13,12 +13,12 @@ xAI (Grok), Amazon Bedrock, Cohere, DeepSeek.
 
 ## How it works
 
-- A [PythonAnywhere](https://www.pythonanywhere.com) Scheduled Task runs
-  `main.py` daily (17:30 UTC = 11:00 PM IST) — see DEPLOY.md for setup. This
-  moved off GitHub Actions' own `schedule:` trigger after it repeatedly
-  failed to fire; the GitHub Actions workflow
-  (`.github/workflows/daily-notify.yml`) still exists for manual runs from
-  the Actions tab.
+- A GitHub Actions workflow (`.github/workflows/daily-notify.yml`) runs the
+  digest daily (17:30 UTC = 11:00 PM IST), same as before — but it's
+  triggered by a free external cron service calling its `workflow_dispatch`
+  API, not GitHub's own `schedule:` trigger, which kept failing to fire
+  ("job was not acquired by Runner ... after multiple attempts"). See
+  DEPLOY.md's "Daily scheduling" section for setup.
 - `main.py` scrapes each provider's page, compares the links it finds against
   `state.json` (what it already told you about), and treats anything new as
   "today's update."
@@ -108,8 +108,10 @@ first run will likely report a lot of "new" items for every provider (since
 nothing has been seen yet) — that's expected; from the second run onward
 you'll only get genuinely new items.
 
-Daily scheduling itself runs on a PythonAnywhere Scheduled Task, not GitHub
-Actions — see the "Daily scheduling" section in DEPLOY.md to set that up.
+Daily scheduling still runs through this same GitHub Actions workflow — it's
+just triggered by a free external cron service instead of GitHub's own
+`schedule:` entry. See the "Daily scheduling" section in DEPLOY.md to set
+that up.
 
 ---
 
@@ -125,12 +127,11 @@ pip install -r requirements.txt
 python main.py
 ```
 
-`.env` is already in `.gitignore` so it never gets committed. GitHub Actions
-doesn't read it (it uses its own Secrets store instead) — but PythonAnywhere
-*does* use this same `.env` mechanism in production, just with its own
-separate `.env` file living directly on your PythonAnywhere account (see
-DEPLOY.md). Delete your local `.env` once you're confident the script works
-and you've set up the real one on PythonAnywhere.
+`.env` is only for local runs — it's already in `.gitignore` so it never
+gets committed, and GitHub Actions doesn't read it at all (it uses the
+Actions secrets you set up in step 5 instead). Delete `.env` once you're
+confident the script works and are ready to rely on the scheduled Actions
+run.
 
 ---
 
@@ -151,8 +152,8 @@ git push -u origin main
 ## Customizing
 
 - **Change providers / URLs**: edit `providers.py`.
-- **Change schedule**: edit the time on your PythonAnywhere Scheduled Task
-  (uses UTC — IST is UTC+5:30).
+- **Change schedule**: edit the time on your external cron job (uses UTC —
+  IST is UTC+5:30).
 - **Tune scraping**: if a provider's page redesigns and stops finding entries,
   open `scraper.py` — you can tighten `link_filter` per provider in
   `providers.py` to only match real article links (e.g. `/blog/2026/...`).
@@ -171,10 +172,9 @@ git push -u origin main
   their wording — the `{{1}}` placeholder approach here means you generally
   won't need to, since only the *content* inside `{{1}}` changes daily, not
   the template itself.
-- Daily scheduling runs on a PythonAnywhere Scheduled Task rather than
-  GitHub Actions, after GitHub's shared runners repeatedly failed to pick up
-  this job at its scheduled time ("job was not acquired by Runner ... after
-  multiple attempts"). See DEPLOY.md's "Daily scheduling" section.
-- PythonAnywhere's free ("Beginner") tier restricts outbound internet access
-  to an allowlist of sites, which would block scraping most of these 10
-  providers — the paid **Developer** plan ($10/month) is required.
+- GitHub Actions' free `schedule:` cron trigger deprioritizes scheduled runs
+  in its shared runner queue, which caused a "job was not acquired by
+  Runner ... after multiple attempts" failure. Daily triggering now goes
+  through `workflow_dispatch` (which doesn't get deprioritized) called by a
+  free external cron service instead — see DEPLOY.md's "Daily scheduling"
+  section. Everything else about the GitHub Actions setup is unchanged.

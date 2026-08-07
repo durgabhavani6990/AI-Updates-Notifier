@@ -157,93 +157,57 @@ To rotate a secret (e.g. new Meta access token):
 gh secret set META_WA_ACCESS_TOKEN -b"new-value-here" -R <owner>/<repo>
 ```
 
-To pick up code changes on PythonAnywhere, see "Updating the code later"
-below — the daily run no longer happens through GitHub Actions.
+To change the schedule, edit the time on your external cron job (see below)
+— GitHub Actions' own `schedule:` trigger is intentionally not used.
 
 ---
 
-## Daily scheduling: PythonAnywhere Scheduled Task (not GitHub Actions)
+## Daily scheduling: external trigger for workflow_dispatch (not `schedule:`)
 
-GitHub's shared Actions runners repeatedly failed to pick up this job at its
-scheduled time ("job was not acquired by Runner ... after multiple
-attempts"), so the actual daily trigger now lives on
-[PythonAnywhere](https://www.pythonanywhere.com) instead. The GitHub Actions
-workflow (`.github/workflows/daily-notify.yml`) still exists for manual runs
-from the Actions tab, but its `schedule:` trigger has been removed so it
-can't double-fire.
+Everything still runs on GitHub Actions, using the exact same secrets and
+the exact same workflow — only the *trigger* changed.
 
-PythonAnywhere's **free ("Beginner") tier restricts outbound internet access
-to an allowlist of sites** — it would block scraping most of the 10 provider
-domains this project needs. The paid **Developer** plan ($10/month) removes
-that restriction and adds Scheduled Tasks (not available on Beginner), and
-is what this setup assumes.
-
-Unlike the earlier Render-based approach, this needs no GitHub token and no
-clone/push-on-every-run workaround: PythonAnywhere gives you a real
-persistent filesystem, so `state.json` just lives on disk between runs like
-it would on your own machine.
+GitHub's shared Actions runners repeatedly failed to pick up this job when
+triggered by a `schedule:` cron entry ("job was not acquired by Runner ...
+after multiple attempts"). GitHub explicitly gives schedule-triggered runs
+lower priority in its shared runner queue than manually- or
+API-triggered (`workflow_dispatch`) runs. So instead of paying for a whole
+separate hosting platform, a free external cron service calls this
+workflow's `workflow_dispatch` API endpoint once a day — same execution
+environment, same secrets, just a different (and better-prioritized)
+trigger path.
 
 ### One-time setup
 
-1. Create a PythonAnywhere account and upgrade to the **Developer** plan
-   (Account → Upgrade Account, $10/month).
+1. **Generate a GitHub Personal Access Token** the external cron service will
+   use to call the API:
+   - GitHub → Settings → Developer settings → Fine-grained tokens → Generate new token
+   - Repository access: only this repo (`AI-Updates-Notifier`)
+   - Permissions: **Actions: Read and write**
+   - Copy the token — you won't be able to see it again.
 
-2. Open a **Bash console** from the PythonAnywhere dashboard and clone the repo:
-   ```bash
-   git clone https://github.com/<your-username>/AI-Updates-Notifier.git
-   cd AI-Updates-Notifier
-   ```
+2. **Create a free account** at [cron-job.org](https://cron-job.org) (or any
+   similar free HTTP-cron service — EasyCron and others work the same way).
 
-3. Create a virtualenv and install dependencies (check `ls /usr/bin/python3.*`
-   first for whatever Python 3.x version is actually available on your
-   account — don't assume 3.11 is still current):
-   ```bash
-   mkvirtualenv --python=/usr/bin/python3.11 ai-updates-env
-   pip install -r requirements.txt
-   ```
-
-4. Create a real `.env` file with your actual secret values (this file is
-   private to your account and never gets pushed to git — pull the values
-   from wherever you originally saved them, since GitHub won't show old
-   Actions secret values back):
-   ```bash
-   cp .env.example .env
-   nano .env   # fill in real values, then Ctrl+O, Enter, Ctrl+X to save
-   ```
-
-5. Test it manually once:
-   ```bash
-   python main.py
-   ```
-   Confirm you get the email + WhatsApp digest, same as testing the old
-   GitHub Actions workflow used to work.
-
-6. Go to the **Tasks** tab in the PythonAnywhere dashboard and add a new
-   scheduled task:
-   - **Time:** `17:30` (PythonAnywhere schedules are in UTC — 17:30 UTC = 11:00 PM IST)
-   - **Command:**
+3. **Create a new cron job** with:
+   - **URL:** `https://api.github.com/repos/<your-username>/AI-Updates-Notifier/actions/workflows/daily-notify.yml/dispatches`
+   - **Method:** `POST`
+   - **Headers:**
      ```
-     /home/<your-pythonanywhere-username>/.virtualenvs/ai-updates-env/bin/python /home/<your-pythonanywhere-username>/AI-Updates-Notifier/main.py
+     Authorization: Bearer <the token from step 1>
+     Accept: application/vnd.github+json
+     Content-Type: application/json
      ```
+   - **Body:** `{"ref":"main"}`
+   - **Schedule:** daily at `17:30` UTC (= 11:00 PM IST)
 
-7. So future `git pull`s don't conflict with the locally-changing
-   `state.json` (see below), tell git to leave your local copy alone:
-   ```bash
-   git update-index --skip-worktree state.json
-   ```
+4. Use the service's "test run" / "execute now" feature once to confirm it
+   returns a `204 No Content` and a new run actually starts on the
+   **Actions** tab of this repo.
 
-That's it — no secrets to re-enter anywhere else, no push-back step, no
-GitHub token.
-
-### Updating the code later
-
-The scheduled task only runs `main.py` — it doesn't pull new code on its
-own. When you push changes to GitHub and want PythonAnywhere to pick them
-up, open a Bash console and run:
-
-```bash
-cd ~/AI-Updates-Notifier && git pull
-```
-
-Step 7 above (`--skip-worktree`) means this won't try to overwrite your
-locally-persisted `state.json` with the repo's (now-stale) committed copy.
+Nothing else changes — no new secrets, no new place your Gmail/WhatsApp/Gemini
+credentials need to live, no change to how `state.json` gets committed back.
+If this still proves unreliable after a couple of weeks of real use, that's
+the point to reconsider a paid platform (Render or PythonAnywhere, both
+covered in git history of this file) with actual evidence instead of a
+single data point.
