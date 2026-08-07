@@ -19,10 +19,10 @@ loads a list of dated entries, and adjust link_filter / max_items as needed.
 PROVIDERS = [
     {
         "name": "OpenAI",
-        "url": "https://developers.openai.com/api/docs/changelog",
-        # Excludes platform.openai.com links (login/dashboard pages that get
-        # swept up as "here"-style anchors alongside real changelog entries).
-        "link_filter": "developers.openai.com",
+        "url": "https://openai.com/news/product-releases/",
+        # Real articles live under /index/ -- everything else in the main
+        # content area is category nav (Company, Research, Safety, ...).
+        "link_filter": "/index/",
         "max_items": 15,
     },
     {
@@ -50,15 +50,21 @@ PROVIDERS = [
     },
     {
         "name": "Microsoft Azure AI",
-        "url": "https://learn.microsoft.com/en-us/azure/ai-services/openai/whats-new",
+        "url": "https://azure.microsoft.com/en-us/blog/product/azure-ai/",
         "link_filter": None,
-        "max_items": 20,
+        # The rest of the main content area is sort/filter controls and
+        # content-type tag links (Thought leadership, Announcements, ...),
+        # not real posts.
+        "exclude_filter": ["?", "/blog/product/", "/blog/content-type/", "blogs.microsoft.com"],
+        "max_items": 15,
+        # Listing shows "July 2" with no year; fetch each new article's own
+        # page for its article:published_time meta tag.
+        "fetch_article_dates": True,
     },
     {
         "name": "Mistral AI",
-        "url": "https://docs.mistral.ai/getting-started/changelog/",
-        # Excludes chat.mistral.ai (the Le Chat app homepage, not a changelog entry).
-        "link_filter": "docs.mistral.ai",
+        "url": "https://mistral.ai/news",
+        "link_filter": None,
         "max_items": 15,
     },
     {
@@ -69,9 +75,14 @@ PROVIDERS = [
     },
     {
         "name": "Amazon Bedrock",
-        "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/doc-history.html",
-        "link_filter": None,
-        "max_items": 20,
+        # AWS has no single Bedrock-only news page, and its HTML "What's New"
+        # hub is JavaScript-rendered (unusable for a plain HTTP scrape) --
+        # but the site-wide "What's New" RSS feed is static XML with a real
+        # pubDate per item, filtered here to just the Bedrock-mentioning ones.
+        "url": "https://aws.amazon.com/new/feed/",
+        "type": "rss",
+        "rss_filter": "bedrock",
+        "max_items": 15,
     },
     {
         "name": "Cohere",

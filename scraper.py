@@ -11,7 +11,9 @@ is "new" -> gets included in today's notification.
 
 import re
 import requests
+import xml.etree.ElementTree as ET
 from datetime import datetime
+from email.utils import parsedate_to_datetime
 from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup
 
@@ -79,6 +81,55 @@ def _fetch_article_date(url: str) -> str | None:
     return m.group(0) if m else None
 
 
+def _fetch_rss_entries(provider: dict) -> list[dict]:
+    """
+    RSS-feed variant of fetch_entries, for providers whose only reliable
+    dated source is a feed rather than an HTML page -- e.g. AWS's per-service
+    "What's New" pages are JavaScript-rendered (unusable for a plain HTTP
+    scrape) but AWS's overall "What's New" RSS feed is static XML with a
+    real pubDate per item. provider["rss_filter"] keeps only items whose
+    title mentions it (case-insensitive), since the feed isn't scoped to one
+    service.
+    """
+    url = provider["url"]
+    rss_filter = (provider.get("rss_filter") or "").lower()
+    max_items = provider.get("max_items", 15)
+
+    resp = requests.get(url, headers=HEADERS, timeout=20)
+    resp.raise_for_status()
+    root = ET.fromstring(resp.text)
+
+    entries = []
+    for item in root.findall(".//item"):
+        title = clean_text(item.findtext("title") or "")
+        link = (item.findtext("link") or "").strip()
+        if not title or not link:
+            continue
+        if rss_filter and rss_filter not in title.lower():
+            continue
+
+        description = clean_text(item.findtext("description") or "")
+
+        date = None
+        pub_date = item.findtext("pubDate")
+        if pub_date:
+            try:
+                date = parsedate_to_datetime(pub_date).strftime("%B %d, %Y")
+            except (ValueError, TypeError):
+                pass
+
+        entries.append({
+            "url": link,
+            "title": title,
+            "snippet": (description or title)[:600],
+            "date": date,
+        })
+        if len(entries) >= max_items:
+            break
+
+    return entries
+
+
 def _root_domain(url: str) -> str:
     """"openai.com" from "developers.openai.com", "anthropic.com" from "www.anthropic.com"."""
     netloc = urlparse(url).netloc.lower().split(":")[0]
@@ -95,9 +146,14 @@ def fetch_entries(provider: dict) -> list[dict]:
     If provider["fetch_article_dates"] is true, entries with no date found on
     the listing page get a second request to their own page to look for one
     (for sites like Google's blog that only show dates on the article itself).
+    If provider["type"] == "rss", delegates to the RSS feed variant instead.
     """
+    if provider.get("type") == "rss":
+        return _fetch_rss_entries(provider)
+
     url = provider["url"]
     link_filter = provider.get("link_filter")
+    exclude_filters = provider.get("exclude_filter") or []
     max_items = provider.get("max_items", 15)
     allowed_domain = _root_domain(url)
 
@@ -129,6 +185,9 @@ def fetch_entries(provider: dict) -> list[dict]:
             continue
 
         if link_filter and link_filter not in href:
+            continue
+
+        if any(x in href for x in exclude_filters):
             continue
 
         if href in seen_urls:
