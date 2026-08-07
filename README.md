@@ -13,8 +13,11 @@ xAI (Grok), Amazon Bedrock, Cohere, DeepSeek.
 
 ## How it works
 
-- A GitHub Actions workflow (`.github/workflows/daily-notify.yml`) runs on a
-  cron schedule (17:30 UTC = 11:00 PM IST).
+- A [Render](https://render.com) Cron Job runs `scripts/render_run.sh` daily
+  (17:30 UTC = 11:00 PM IST) — see DEPLOY.md for setup. This moved off
+  GitHub Actions' own `schedule:` trigger after it repeatedly failed to
+  fire; the GitHub Actions workflow (`.github/workflows/daily-notify.yml`)
+  still exists for manual runs from the Actions tab.
 - `main.py` scrapes each provider's page, compares the links it finds against
   `state.json` (what it already told you about), and treats anything new as
   "today's update."
@@ -104,7 +107,8 @@ first run will likely report a lot of "new" items for every provider (since
 nothing has been seen yet) — that's expected; from the second run onward
 you'll only get genuinely new items.
 
-It will then run automatically every day at 11 PM IST.
+Daily scheduling itself runs on a Render Cron Job, not GitHub Actions — see
+the "Daily scheduling" section in DEPLOY.md to set that up.
 
 ---
 
@@ -121,9 +125,10 @@ python main.py
 ```
 
 `.env` is only for local runs — it's already in `.gitignore` so it never gets
-committed, and GitHub Actions doesn't read it at all (it uses the Actions
-secrets you set up in step 5 instead). Delete `.env` once you're confident
-the script works and are ready to rely on the scheduled Actions run.
+committed, and neither GitHub Actions nor Render read it (each has its own
+environment variables set through their own dashboards instead). Delete
+`.env` once you're confident the script works and are ready to rely on the
+scheduled Render run.
 
 ---
 
@@ -144,8 +149,8 @@ git push -u origin main
 ## Customizing
 
 - **Change providers / URLs**: edit `providers.py`.
-- **Change schedule**: edit the cron line in `.github/workflows/daily-notify.yml`
-  (uses UTC — IST is UTC+5:30).
+- **Change schedule**: edit the cron schedule in your Render Cron Job's
+  settings (uses UTC — IST is UTC+5:30).
 - **Tune scraping**: if a provider's page redesigns and stops finding entries,
   open `scraper.py` — you can tighten `link_filter` per provider in
   `providers.py` to only match real article links (e.g. `/blog/2026/...`).
@@ -164,5 +169,7 @@ git push -u origin main
   their wording — the `{{1}}` placeholder approach here means you generally
   won't need to, since only the *content* inside `{{1}}` changes daily, not
   the template itself.
-- GitHub Actions' free cron isn't millisecond-precise and can run a few
-  minutes after the scheduled time under load.
+- Daily scheduling runs on a Render Cron Job rather than GitHub Actions,
+  after GitHub's shared runners repeatedly failed to pick up this job at its
+  scheduled time ("job was not acquired by Runner ... after multiple
+  attempts"). See DEPLOY.md's "Daily scheduling" section.

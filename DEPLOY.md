@@ -157,5 +157,66 @@ To rotate a secret (e.g. new Meta access token):
 gh secret set META_WA_ACCESS_TOKEN -b"new-value-here" -R <owner>/<repo>
 ```
 
-To change the schedule, edit the `cron:` line in
-`.github/workflows/daily-notify.yml`, commit, and push — no redeploy script needed.
+To change the schedule, edit the cron field in your Render Cron Job's
+settings (see below) — the daily run no longer happens through GitHub
+Actions.
+
+---
+
+## Daily scheduling: Render Cron Job (not GitHub Actions)
+
+GitHub's shared Actions runners repeatedly failed to pick up this job at its
+scheduled time ("job was not acquired by Runner ... after multiple
+attempts"), so the actual daily trigger now lives on
+[Render](https://render.com) instead. The GitHub Actions workflow
+(`.github/workflows/daily-notify.yml`) still exists for manual runs from the
+Actions tab, but its `schedule:` trigger has been removed so it can't
+double-fire alongside Render.
+
+`scripts/render_run.sh` is the entry point Render calls. Since Render Cron
+Jobs don't guarantee the filesystem persists between runs, the script is
+self-contained: on every run it clones a fresh copy of this repo with a
+GitHub token, runs `main.py`, then commits and pushes the updated
+`state.json` back — the same "commit updated state" step the old GitHub
+Actions job used to do.
+
+### One-time setup
+
+1. **Generate a GitHub Personal Access Token** the script can use to push
+   `state.json` back to this repo:
+   - GitHub → Settings → Developer settings → Fine-grained tokens → Generate new token
+   - Repository access: only this repo (`AI-Updates-Notifier`)
+   - Permissions: **Contents: Read and write**
+   - Copy the token — you won't be able to see it again.
+
+2. **Create a Render account** at [render.com](https://render.com) (a GitHub
+   login works fine) and connect it to this repository.
+
+3. **New → Cron Job**, pointing at this repo, with:
+   - **Build Command:** `pip install -r requirements.txt`
+   - **Start Command:** `bash scripts/render_run.sh`
+   - **Schedule:** `30 17 * * *` (UTC — same as before: 17:30 UTC = 11:00 PM IST)
+
+4. **Add environment variables** in the Cron Job's settings — copy the same
+   values you originally set as GitHub Actions secrets (GitHub won't show you
+   the old values back, so pull them from wherever you first saved them:
+   password manager, Meta/Gemini dashboards, etc.):
+   - `GMAIL_ADDRESS`
+   - `GMAIL_APP_PASSWORD`
+   - `RECIPIENT_EMAILS`
+   - `META_WA_PHONE_NUMBER_ID`
+   - `META_WA_ACCESS_TOKEN`
+   - `META_WA_TEMPLATE_NAME`
+   - `META_WA_TEMPLATE_LANG`
+   - `RECIPIENT_WHATSAPP_NUMBERS`
+   - `GEMINI_API_KEY`
+   - `GITHUB_TOKEN` — the token from step 1
+   - `GITHUB_REPO` — `<your-username>/AI-Updates-Notifier`
+
+5. Trigger a manual run from Render's dashboard once to confirm it emails
+   you and pushes a `state.json` commit, same as testing the GitHub Actions
+   workflow used to work.
+
+Render bills Cron Jobs by the second of actual run time, with a $1/month
+minimum per cron service — there's no free tier for this service type, but a
+job that runs a minute or two once a day will sit right around that floor.
