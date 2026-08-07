@@ -103,6 +103,38 @@ def summarize(provider_name: str, title: str, snippet: str) -> str | None:
         return textwrap.shorten(snippet, width=280, placeholder="...")
 
 
+# If an entry's own official date is older than this, it's very unlikely to
+# be a genuinely new release -- more likely the page reordered/edited an old
+# entry so it entered our scrape window for the first time. Flagged rather
+# than silently dropped, since the date isn't available for every provider
+# and we'd rather over-notify than risk hiding a real update.
+STALE_DAYS = 21
+_DATE_FORMATS = ("%B %d, %Y", "%b %d, %Y", "%B %d %Y", "%b %d %Y")
+
+
+def _parse_date(date_str: str | None):
+    if not date_str:
+        return None
+    for fmt in _DATE_FORMATS:
+        try:
+            return datetime.strptime(date_str, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _date_note(date_str: str | None) -> str:
+    """Returns e.g. ' (published Jun 24, 2026 -- just surfaced)' when an
+    entry's official date is old, '' when it's recent or unknown."""
+    parsed = _parse_date(date_str)
+    if parsed is None:
+        return ""
+    age_days = (datetime.now() - parsed).days
+    if age_days > STALE_DAYS:
+        return f" (published {date_str} -- just surfaced, not a new release)"
+    return f" ({date_str})"
+
+
 def _split_recipients(raw: str) -> list[str]:
     return [r.strip() for r in raw.split(",") if r.strip()]
 
@@ -142,12 +174,14 @@ def build_email_html(digest: dict, errors: list[str] | None = None, recipient_na
             rows = []
             for i, item in enumerate(items):
                 border = f"border-top:1px solid {BORDER};" if i > 0 else ""
+                note = _date_note(item.get("date"))
+                note_html = f'<div style="color:{MUTED};font-size:12px;margin-top:4px;">{note.strip(" ()")}</div>' if note else ""
                 rows.append(
                     f'<tr><td style="padding:12px 0;{border}">'
                     f'<a href="{item["url"]}" style="color:{ACCENT};font-weight:600;'
                     f'font-size:15px;text-decoration:none;">{item["title"]}</a>'
                     f'<div style="color:{TEXT};font-size:14px;line-height:1.5;margin-top:4px;">'
-                    f'{item["description"]}</div></td></tr>'
+                    f'{item["description"]}</div>{note_html}</td></tr>'
                 )
             sections.append(
                 f'<tr><td style="padding:0 0 16px 0;">'
@@ -232,7 +266,8 @@ def build_whatsapp_text(digest: dict) -> str:
     for provider_name, items in digest.items():
         lines.append(f"*{provider_name}*")
         for item in items:
-            lines.append(f'- {item["title"]}')
+            note = _date_note(item.get("date"))
+            lines.append(f'- {item["title"]}{note}')
             lines.append(f'  {item["description"]}')
             lines.append(f'  {item["url"]}')
         lines.append("")

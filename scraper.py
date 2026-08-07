@@ -11,6 +11,7 @@ is "new" -> gets included in today's notification.
 
 import re
 import requests
+from datetime import datetime
 from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup
 
@@ -18,9 +19,64 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; AIUpdatesBot/1.0; +https://github.com/)"
 }
 
+# Requires an explicit year -- a bare "Jun 24" next to an entry is ambiguous
+# (could be a group heading for a different year) and not worth guessing at.
+DATE_RE = re.compile(
+    r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|"
+    r"Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
+    r"\s+\d{1,2},?\s+\d{4}"
+)
+
 
 def clean_text(text: str) -> str:
     return re.sub(r"\s+", " ", text or "").strip()
+
+
+def _nearby_date(parent) -> str | None:
+    """
+    Best-effort: only returns a date when the entry's own containing element
+    (the same one used for its snippet) has an unambiguous "Month DD, YYYY"
+    in it. Many provider pages put the date in a separate group heading we
+    can't reliably associate with a specific entry -- those just get None
+    rather than a guessed date.
+    """
+    if parent is None:
+        return None
+    m = DATE_RE.search(parent.get_text(separator=" "))
+    return m.group(0) if m else None
+
+
+def _fetch_article_date(url: str) -> str | None:
+    """
+    Best-effort: for pages that don't expose a date on the listing itself
+    (e.g. Google's blog), visit the entry's own page and check the standard
+    article:published_time meta tag, then a <time datetime> attribute, then
+    fall back to a visible "Month DD, YYYY" near the top of the article.
+    """
+    try:
+        resp = requests.get(url, headers=HEADERS, timeout=15)
+        resp.raise_for_status()
+    except requests.RequestException:
+        return None
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    meta = soup.find("meta", attrs={"property": "article:published_time"})
+    if meta and meta.get("content"):
+        try:
+            return datetime.strptime(meta["content"][:10], "%Y-%m-%d").strftime("%B %d, %Y")
+        except ValueError:
+            pass
+
+    time_tag = soup.find("time", attrs={"datetime": True})
+    if time_tag:
+        try:
+            return datetime.strptime(time_tag["datetime"][:10], "%Y-%m-%d").strftime("%B %d, %Y")
+        except ValueError:
+            pass
+
+    m = DATE_RE.search(soup.get_text(separator=" ")[:3000])
+    return m.group(0) if m else None
 
 
 def _root_domain(url: str) -> str:
@@ -32,8 +88,13 @@ def _root_domain(url: str) -> str:
 
 def fetch_entries(provider: dict) -> list[dict]:
     """
-    Returns a list of dicts: {"url": str, "title": str, "snippet": str}
+    Returns a list of dicts: {"url": str, "title": str, "snippet": str, "date": str | None}
     ordered as they appear on the page (newest first, per site convention).
+    "date" is the entry's own "Month DD, YYYY" if we could find one
+    unambiguously tied to it, else None -- not every provider page exposes one.
+    If provider["fetch_article_dates"] is true, entries with no date found on
+    the listing page get a second request to their own page to look for one
+    (for sites like Google's blog that only show dates on the article itself).
     """
     url = provider["url"]
     link_filter = provider.get("link_filter")
@@ -73,7 +134,7 @@ def fetch_entries(provider: dict) -> list[dict]:
         if href in seen_urls:
             continue
 
-        title = clean_text(a.get_text())
+        title = clean_text(a.get_text(separator=" "))
         if not title or len(title) < 4:
             continue
 
@@ -88,21 +149,26 @@ def fetch_entries(provider: dict) -> list[dict]:
                 continue
             seen_parents.add(parent_key)
 
-        snippet = clean_text(parent.get_text()) if parent is not None else ""
+        snippet = clean_text(parent.get_text(separator=" ")) if parent is not None else ""
+        date = _nearby_date(parent)
         if not snippet or snippet == title:
             # Table-row changelogs (e.g. AWS doc-history pages) put the link
             # text, description, and date in separate cells -- if the link's
             # own cell has no extra text, pull the whole row instead.
             row = a.find_parent("tr")
             if row is not None:
-                row_text = clean_text(row.get_text())
+                row_text = clean_text(row.get_text(separator=" "))
                 if row_text:
                     snippet = row_text
+                    date = date or _nearby_date(row)
         if not snippet:
             snippet = title
 
+        if date is None and provider.get("fetch_article_dates"):
+            date = _fetch_article_date(href)
+
         seen_urls.add(href)
-        entries.append({"url": href, "title": title, "snippet": snippet[:600]})
+        entries.append({"url": href, "title": title, "snippet": snippet[:600], "date": date})
 
         if len(entries) >= max_items:
             break

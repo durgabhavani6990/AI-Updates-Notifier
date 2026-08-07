@@ -33,9 +33,14 @@ PROVIDERS = [
     },
     {
         "name": "Google (Gemini API)",
-        "url": "https://ai.google.dev/gemini-api/docs/changelog",
-        "link_filter": None,
+        "url": "https://blog.google/products/gemini/",
+        # Keeps only genuine model/API announcements -- this page also lists
+        # consumer Gemini-app, Pixel, and Android posts under other URL paths.
+        "link_filter": "/models-and-research/gemini-models/",
         "max_items": 15,
+        # This listing page doesn't show dates itself; fetch each new
+        # article's own page for its article:published_time meta tag.
+        "fetch_article_dates": True,
     },
     {
         "name": "Meta AI",

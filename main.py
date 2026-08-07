@@ -64,6 +64,7 @@ def main():
                 "url": e["url"],
                 "title": e["title"],
                 "description": description,
+                "date": e.get("date"),
             })
         if included:
             digest[name] = included
